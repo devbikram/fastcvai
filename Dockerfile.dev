@@ -1,0 +1,35 @@
+# Development Dockerfile for local testing
+FROM node:18-alpine AS frontend-base
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+FROM python:3.11-alpine AS backend-base
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    openssl-dev \
+    python3-dev \
+    tesseract-ocr \
+    tesseract-ocr-data-eng \
+    poppler-utils
+WORKDIR /app
+
+# Frontend development stage
+FROM frontend-base AS frontend
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend/ ./
+EXPOSE 3000
+CMD ["npm", "run", "dev"]
+
+# Backend development stage
+FROM backend-base AS backend
+WORKDIR /app/backend
+COPY backend/requirements.txt ./
+RUN pip install -r requirements.txt
+COPY backend/ ./
+EXPOSE 4000
+ENV PYTHONPATH=/app/backend
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "4000", "--reload"]

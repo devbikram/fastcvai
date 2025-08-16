@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CV Analyzer - Test Frontend</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .step-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .step-number {
+            background: #007bff;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        .step-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+        .step-description {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #333;
+        }
+        input[type="text"], input[type="file"], textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            font-family: inherit;
+            box-sizing: border-box;
+        }
+        input[type="file"] {
+            padding: 10px;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 150px;
+        }
+        .analyze-btn {
+            background: #007bff;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .analyze-btn:hover {
+            background: #0056b3;
+        }
+        .analyze-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            display: none;
+        }
+        .results.show {
+            display: block;
+        }
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .success {
+            color: #155724;
+            background: #d4edda;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        details {
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        summary {
+            cursor: pointer;
+            font-weight: bold;
+            padding: 5px 0;
+            color: #007bff;
+        }
+        summary:hover {
+            color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="step-header">
+            <div class="step-number">1</div>
+            <div class="step-title">Upload Your CV</div>
+        </div>
+        <div class="step-description">
+            Upload your CV and provide job details to get AI-powered analysis and recommendations.
+            <br><strong>Supported formats:</strong> PDF, DOCX, TXT, JPG, PNG
+        </div>
+
+        <form id="cvAnalysisForm" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="cvFile">CV File (PDF, DOCX, TXT, JPG, PNG)</label>
+                <input type="file" id="cvFile" name="file" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png" required>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="currentJobTitle">Current Job Title</label>
+                    <input type="text" id="currentJobTitle" name="current_job_title" placeholder="e.g., Software Engineer" required>
+                </div>
+                <div class="form-group">
+                    <label for="targetJobTitle">Target Job Title (Optional)</label>
+                    <input type="text" id="targetJobTitle" name="target_job_title" placeholder="e.g., Senior Software Engineer">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="jobDescription">Job Description</label>
+                <textarea id="jobDescription" name="job_description" placeholder="Paste the job description here..." required></textarea>
+            </div>
+
+            <button type="submit" class="analyze-btn" id="analyzeBtn">Analyze CV with AI</button>
+        </form>
+
+        <div class="loading" id="loading">
+            <p>🤖 AI is analyzing your CV... This may take a few seconds.</p>
+        </div>
+
+        <div id="results" class="results">
+            <!-- Results will be populated here -->
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('cvAnalysisForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const form = e.target;
+            const formData = new FormData(form);
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            
+            // Show loading state
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = 'Analyzing...';
+            loading.style.display = 'block';
+            results.classList.remove('show');
+            
+            try {
+                const response = await fetch('http://localhost:8000/api/analyze-cv', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    displayResults(data);
+                } else {
+                    displayError(data.detail || 'Analysis failed');
+                }
+            } catch (error) {
+                displayError('Connection error: ' + error.message);
+            } finally {
+                // Reset button state
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze CV with AI';
+                loading.style.display = 'none';
+            }
+        });
+        
+        function displayResults(data) {
+            const results = document.getElementById('results');
+            const analysis = data.analysis;
+            const extractedData = data.extracted_data;
+            
+            results.innerHTML = `
+                <div class="success">✅ Analysis completed successfully!</div>
+                
+                <h3>📊 Analysis Results</h3>
+                <p><strong>Session ID:</strong> ${data.session_id}</p>
+                <p><strong>Score:</strong> <span class="score">${analysis.original_score}/100</span></p>
+                <p><strong>Current Job:</strong> ${analysis.current_job_title}</p>
+                <p><strong>Target Job:</strong> ${analysis.target_job_title || 'Same as current'}</p>
+                <p><strong>Summary:</strong> ${analysis.summary}</p>
+                
+                <h3>📄 Extracted CV Data</h3>
+                <p><strong>File Name:</strong> ${extractedData.file_name}</p>
+                <p><strong>File Type:</strong> ${extractedData.file_type.toUpperCase()}</p>
+                <p><strong>Text Length:</strong> ${extractedData.text_length} characters</p>
+                <details>
+                    <summary><strong>📝 Full Extracted Text</strong> (Click to expand)</summary>
+                    <pre style="background: #f5f5f5; padding: 15px; border-radius: 5px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 12px; margin-top: 10px;">${extractedData.full_text}</pre>
+                </details>
+                
+                <h4>🎯 Strengths (${analysis.strengths.length})</h4>
+                <ul>
+                    ${analysis.strengths.map(strength => `<li>${strength}</li>`).join('')}
+                </ul>
+                
+                <h4>📝 Missing Skills (${analysis.missing_skills.length})</h4>
+                <ul>
+                    ${analysis.missing_skills.map(skill => `<li>${skill}</li>`).join('')}
+                </ul>
+                
+                <h4>💡 Recommendations (${analysis.recommendations.length})</h4>
+                <ul>
+                    ${analysis.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                </ul>
+                
+                <h4>🔗 Next Steps</h4>
+                <p>You can enhance your CV by adding missing information and generating an improved version.</p>
+                <p><strong>Enhancement URL:</strong> ${data.next_steps.enhancement_url}</p>
+                <p><strong>Download URL:</strong> ${data.next_steps.download_url}</p>
+            `;
+            
+            results.classList.add('show');
+        }
+        
+        function displayError(message) {
+            const results = document.getElementById('results');
+            results.innerHTML = `<div class="error">❌ ${message}</div>`;
+            results.classList.add('show');
+        }
+    </script>
+</body>
+</html>

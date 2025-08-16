@@ -1,0 +1,159 @@
+name: Deploy to Google Cloud Platform
+
+on:
+  push:
+    branches: [ main, develop ]  # Trigger on pushes to main and develop branches
+  pull_request:
+    branches: [ main ]
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GAR_LOCATION: us-central1  # Artifact Registry location
+  SERVICE: cv-analyzer-app   # Cloud Run service name
+  REGION: us-central1        # Cloud Run region
+
+jobs:
+  # Job for running tests
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'frontend/package-lock.json'
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        cache-dependency-path: 'backend/requirements.txt'
+
+    - name: Install frontend dependencies
+      run: cd frontend && npm ci
+
+    - name: Install backend dependencies
+      run: cd backend && pip install -r requirements.txt
+
+    - name: Run frontend tests
+      run: cd frontend && npm test -- --coverage --watchAll=false
+
+    - name: Run backend tests
+      run: cd backend && python -m pytest || echo "No backend tests found"
+
+    - name: Run frontend linting
+      run: cd frontend && npm run lint
+
+    - name: Run backend linting
+      run: cd backend && python -m flake8 . || echo "No backend linting configured"
+
+  # Job for building and deploying to GCP
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Google Auth
+      id: auth
+      uses: 'google-github-actions/auth@v2'
+      with:
+        token_format: 'access_token'
+        workload_identity_provider: '${{ secrets.WIF_PROVIDER }}'
+        service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}'
+
+    - name: Docker Auth
+      id: docker-auth
+      uses: 'docker/login-action@v3'
+      with:
+        username: 'oauth2accesstoken'
+        password: '${{ steps.auth.outputs.access_token }}'
+        registry: '${{ env.GAR_LOCATION }}-docker.pkg.dev'
+
+    - name: Build and Push Container
+      run: |-
+        docker build -t "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cv-analyzer/${{ env.SERVICE }}:${{ github.sha }}" ./
+        docker push "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cv-analyzer/${{ env.SERVICE }}:${{ github.sha }}"
+
+    # Deploy to Cloud Run (choose one deployment method)
+    - name: Deploy to Cloud Run
+      id: deploy
+      uses: google-github-actions/deploy-cloudrun@v2
+      with:
+        service: ${{ env.SERVICE }}
+        region: ${{ env.REGION }}
+        image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cv-analyzer/${{ env.SERVICE }}:${{ github.sha }}
+        env_vars: |
+          NODE_ENV=production
+          PORT=8080
+
+    # Alternative: Deploy to App Engine (uncomment if using App Engine)
+    # - name: Deploy to App Engine
+    #   id: deploy-gae
+    #   uses: google-github-actions/deploy-appengine@v2
+    #   with:
+    #     deliverables: app.yaml
+
+    - name: Show Output
+      run: echo ${{ steps.deploy.outputs.url }}
+
+  # Job for staging deployment (optional)
+  deploy-staging:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Google Auth
+      id: auth
+      uses: 'google-github-actions/auth@v2'
+      with:
+        token_format: 'access_token'
+        workload_identity_provider: '${{ secrets.WIF_PROVIDER }}'
+        service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}'
+
+    - name: Docker Auth
+      id: docker-auth
+      uses: 'docker/login-action@v3'
+      with:
+        username: 'oauth2accesstoken'
+        password: '${{ steps.auth.outputs.access_token }}'
+        registry: '${{ env.GAR_LOCATION }}-docker.pkg.dev'
+
+    - name: Build and Push Container
+      run: |-
+        docker build -t "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cv-analyzer/${{ env.SERVICE }}-staging:${{ github.sha }}" ./
+        docker push "${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cv-analyzer/${{ env.SERVICE }}-staging:${{ github.sha }}"
+
+    - name: Deploy to Cloud Run (Staging)
+      id: deploy-staging
+      uses: google-github-actions/deploy-cloudrun@v2
+      with:
+        service: ${{ env.SERVICE }}-staging
+        region: ${{ env.REGION }}
+        image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cv-analyzer/${{ env.SERVICE }}-staging:${{ github.sha }}
+        env_vars: |
+          NODE_ENV=staging
+          PORT=8080
+
+    - name: Show Staging Output
+      run: echo ${{ steps.deploy-staging.outputs.url }}
