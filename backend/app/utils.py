@@ -2,6 +2,7 @@ import os
 import tempfile
 import pdfplumber
 import docx
+import mammoth
 from PIL import Image
 from fastapi import UploadFile
 from typing import Tuple
@@ -36,56 +37,74 @@ def extract_text_from_pdf(file_path: str) -> str:
     return text
 
 def extract_text_from_docx(file_path: str) -> str:
-    doc = docx.Document(file_path)
-    text_parts = []
+    """Extract text from DOCX files using mammoth for better formatting support."""
+    try:
+        # First try mammoth for better text extraction from complex documents
+        with open(file_path, "rb") as docx_file:
+            result = mammoth.extract_raw_text(docx_file)
+            text = result.value.strip()
+            
+            # If mammoth extracted meaningful text, use it
+            if text and len(text) > 10:  # More than just whitespace/minimal content
+                return text
+                
+    except Exception as e:
+        print(f"Mammoth extraction failed: {e}, falling back to python-docx")
     
-    # Extract text from paragraphs
-    for para in doc.paragraphs:
-        if para.text.strip():
-            text_parts.append(para.text)
-    
-    # Extract text from tables
-    for table in doc.tables:
-        for row in table.rows:
-            row_text = []
-            for cell in row.cells:
-                # Extract text from each cell, including nested paragraphs
-                cell_text = []
-                for para in cell.paragraphs:
-                    if para.text.strip():
-                        cell_text.append(para.text.strip())
-                if cell_text:
-                    row_text.append(" ".join(cell_text))
-            if row_text:
-                # Join non-empty cells with " | " and add to text
-                combined_row = " | ".join([text for text in row_text if text])
-                if combined_row.strip():
-                    text_parts.append(combined_row)
-    
-    # If no text found, try extracting from runs (more granular text elements)
-    if not text_parts:
-        print("No text found in paragraphs/tables, trying runs...")
-        for para in doc.paragraphs:
-            for run in para.runs:
-                if run.text.strip():
-                    text_parts.append(run.text.strip())
+    # Fallback to python-docx method
+    try:
+        doc = docx.Document(file_path)
+        text_parts = []
         
-        # Also try runs in table cells
+        # Extract text from paragraphs
+        for para in doc.paragraphs:
+            if para.text.strip():
+                text_parts.append(para.text)
+        
+        # Extract text from tables
         for table in doc.tables:
             for row in table.rows:
+                row_text = []
                 for cell in row.cells:
+                    # Extract text from each cell, including nested paragraphs
+                    cell_text = []
                     for para in cell.paragraphs:
-                        for run in para.runs:
-                            if run.text.strip():
-                                text_parts.append(run.text.strip())
-    
-    result = "\n".join(text_parts)
-    
-    # If still no text, this might be an image-based or heavily formatted document
-    if not result.strip():
-        return "⚠️ No extractable text found. This document may contain only images, complex formatting, or be password protected."
-    
-    return result
+                        if para.text.strip():
+                            cell_text.append(para.text.strip())
+                    if cell_text:
+                        row_text.append(" ".join(cell_text))
+                if row_text:
+                    # Join non-empty cells with " | " and add to text
+                    combined_row = " | ".join([text for text in row_text if text])
+                    if combined_row.strip():
+                        text_parts.append(combined_row)
+        
+        # If no text found, try extracting from runs (more granular text elements)
+        if not text_parts:
+            for para in doc.paragraphs:
+                for run in para.runs:
+                    if run.text.strip():
+                        text_parts.append(run.text.strip())
+            
+            # Also try runs in table cells
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for para in cell.paragraphs:
+                            for run in para.runs:
+                                if run.text.strip():
+                                    text_parts.append(run.text.strip())
+        
+        result = "\n".join(text_parts)
+        
+        # If still no text, this might be an image-based or heavily formatted document
+        if not result.strip():
+            return "⚠️ No extractable text found. This document may contain only images, complex formatting, or be password protected."
+        
+        return result
+        
+    except Exception as e:
+        return f"⚠️ Error extracting text from DOCX: {str(e)}"
 
 def extract_text_from_image(file_path: str) -> str:
     """Extract text from image using OCR."""
